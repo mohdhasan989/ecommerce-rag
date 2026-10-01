@@ -10,7 +10,9 @@ let fail = 0;
 const ok = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'}  ${m}`); if (!c) fail++; };
 const t = async (m, fn) => { try { ok(await fn(), m); } catch (e) { ok(false, `${m} -> ${errMsg(e)}`); } };
 
-await t('products load from API (13 items, with images)', async () => { const r = await productApi.list({ limit: 50 }); return r.total === 13 && r.items[0].images.length > 0; });
+// NOTE: runs against a persistent MySQL database, so counts are captured as a
+// baseline and compared relatively. Re-running this file must stay green.
+await t('products load from API (with images)', async () => { const r = await productApi.list({ limit: 100 }); return r.total > 0 && r.items[0].images.length > 0; });
 await t('category filter + price filter + sort', async () => { const c = (await productApi.categories()).find((x) => x.name === 'Shoes'); const r = await productApi.list({ category_id: c.id, max_price: 100, sort: 'price_asc' }); return r.items.length > 0 && r.items.every((p) => (p.discount_price ?? p.price) <= 100); });
 await t('product details', async () => (await productApi.get(1)).sku === 'EL-HP-001');
 try { await authApi.login({ email: 'alice@demo.com', password: 'wrong-pass' }); ok(false, 'bad login rejected'); } catch (e) { ok(errMsg(e) === 'Invalid email or password', `bad login shows friendly message: "${errMsg(e)}"`); }
@@ -25,8 +27,14 @@ try { await adminApi.stats(); ok(false, 'USER blocked from admin API'); } catch 
 const adm = await authApi.login({ email: process.env.ADMIN_EMAIL, password: process.env.ADMIN_PASSWORD });
 localStorage.setItem('token', adm.access_token);
 ok(adm.user.role === 'ADMIN', 'admin login works');
-await t('admin dashboard stats', async () => (await adminApi.stats()).total_products === 13);
-await t('admin product create/edit/deactivate', async () => { const p = await adminApi.createProduct({ name: 'IT Product', price: 10, stock: 3, sku: `IT-${Date.now()}`, image_urls: ['https://x/y.jpg'] }); await adminApi.updateProduct(p.id, { name: 'IT Product 2', price: 10, stock: 4, sku: p.sku, image_urls: [] }); await adminApi.deleteProduct(p.id); return true; });
+await t('admin dashboard stats agree with product lists', async () => {
+  const s = await adminApi.stats();
+  const all = await adminApi.products({ limit: 100 });
+  const pub = await productApi.list({ limit: 100 });
+  const inactive = all.items.filter((p) => !p.is_active).length;
+  return s.total_products === all.total && pub.total === all.total - inactive && s.total_users >= 3 && Array.isArray(s.recent_orders);
+});
+await t('admin product create/edit/deactivate', async () => { const before = (await adminApi.stats()).total_products; const p = await adminApi.createProduct({ name: 'IT Product', price: 10, stock: 3, sku: `IT-${Date.now()}`, image_urls: ['https://x/y.jpg'] }); if ((await adminApi.stats()).total_products !== before + 1) return false; await adminApi.updateProduct(p.id, { name: 'IT Product 2', price: 10, stock: 4, sku: p.sku, image_urls: [] }); await adminApi.deleteProduct(p.id); const pub = await productApi.list({ search: 'IT Product 2', limit: 10 }); return pub.total === 0; });
 await t('admin orders + users lists', async () => (await adminApi.orders()).length >= 3 && (await adminApi.users()).length >= 4);
 const pre = await fetch(`${process.env.VITE_API_URL}/api/products`, { method: 'OPTIONS', headers: { Origin: 'http://localhost:5173', 'Access-Control-Request-Method': 'GET' } });
 ok(pre.headers.get('access-control-allow-origin') === 'http://localhost:5173', 'CORS allows the Vite dev origin');

@@ -17,6 +17,15 @@ export function Products() {
   const sort = sp.get('sort') || 'newest', page = Number(sp.get('page') || 1);
   const [term, setTerm] = useState(q);
   const [lo, setLo] = useState(min), [hi, setHi] = useState(max);
+  // Keep the inputs in step with the URL so deep links and back/forward navigation
+  // (which change the search params without touching local state) stay consistent.
+  const [seen, setSeen] = useState({ q, min, max });
+  if (seen.q !== q || seen.min !== min || seen.max !== max) {
+    setSeen({ q, min, max });
+    if (seen.q !== q) setTerm(q);
+    if (seen.min !== min) setLo(min);
+    if (seen.max !== max) setHi(max);
+  }
   const set = (patch) => {
     const n = new URLSearchParams(sp);
     Object.entries({ page: '', ...patch }).forEach(([k, v]) => (v ? n.set(k, v) : n.delete(k)));

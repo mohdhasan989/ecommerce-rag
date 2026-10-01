@@ -23,8 +23,24 @@ cp .env.example .env     # VITE_API_URL=http://localhost:8000
 npm install
 npm run dev              # http://localhost:5173
 ```
-Optional API check against a running, seeded backend:
-`npm i --no-save vite-node && ADMIN_EMAIL=... ADMIN_PASSWORD=... VITE_API_URL=http://localhost:8000 npx vite-node tests/api-integration.mjs`
+Optional API check against a running, seeded backend (safe to re-run — it is
+re-runnable against a persistent database):
+```bash
+cd frontend
+npm i --no-save vite-node
+ADMIN_EMAIL=<admin email> ADMIN_PASSWORD=<admin password> VITE_API_URL=http://localhost:8000 npx vite-node tests/api-integration.mjs
+```
+
+## Opening the dev server from a phone / another machine
+The Vite server binds to all interfaces, so any address on your LAN works — but
+the backend must allow that origin too. Add it to `backend/.env`:
+```
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://<your-lan-ip>:5173
+```
+and point HMR at the same address in `frontend/.env`:
+```
+VITE_HMR_HOST=<your-lan-ip>
+```
 
 ## Logins
 - Users: alice@demo.com, bob@demo.com — `Password123!`
