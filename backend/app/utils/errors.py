@@ -17,6 +17,10 @@ def _resp(status, code, message, details=None):
 
 
 def register_handlers(app: FastAPI):
+    # Imported lazily so the AI layer never has to be loaded to serve Milestone 1
+    # routes, and so there is no import cycle via app.ai.__init__.
+    from app.ai.exceptions import AIError
+
     @app.exception_handler(StarletteHTTPException)
     async def http_exc(_: Request, e: StarletteHTTPException):
         return _resp(e.status_code, CODES.get(e.status_code, "ERROR"), str(e.detail))
@@ -30,6 +34,15 @@ def register_handlers(app: FastAPI):
     async def db_exc(_: Request, e: SQLAlchemyError):
         log.exception("Database error")
         return _resp(500, "DATABASE_ERROR", "A database error occurred. Please try again later.")
+
+    @app.exception_handler(AIError)
+    async def ai_exc(_: Request, e: AIError):
+        # Safe messages only: ConfigurationError.detail lists env var NAMES, never
+        # values, and provider payloads are never propagated to the client.
+        body = {"error": {"code": e.code, "message": e.message}}
+        if e.detail:
+            body["error"]["detail"] = e.detail
+        return JSONResponse(status_code=e.status_code, content=body)
 
     @app.exception_handler(Exception)
     async def any_exc(_: Request, e: Exception):

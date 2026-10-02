@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import admin, auth, cart, orders
+from app.routers import admin, auth, cart, chatbot, orders
 from app.routers.catalog import categories, products
 from app.utils.errors import register_handlers
 
@@ -10,7 +10,7 @@ app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.CO
                    allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 register_handlers(app)
 
-for r in (auth.router, products, categories, cart.router, orders.router, admin.router):
+for r in (auth.router, products, categories, cart.router, orders.router, admin.router, chatbot.router):
     app.include_router(r, prefix="/api")
 
 

@@ -10,3 +10,14 @@ PyJWT>=2.8
 bcrypt>=4.1
 httpx>=0.27
 pytest>=8
+
+# --- Milestone 2: AI / RAG -------------------------------------------------
+# LangChain is used as the integration layer; the providers are reached through
+# their own official SDKs so no heavy local model weights are downloaded.
+langchain>=1.0
+langchain-core>=1.0
+langchain-text-splitters>=1.0
+langchain-groq>=1.0
+groq>=0.30
+qdrant-client>=1.12
+pypdf>=5.0
