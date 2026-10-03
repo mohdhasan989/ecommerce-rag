@@ -3,10 +3,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies.auth import require_admin
-from app.models import Category, Order, OrderStatus, Product, User
-from app.schemas import (ActiveUpdate, CategoryIn, CategoryOut, OrderOut, ProductIn, ProductOut,
-                         ProductPage, StatusUpdate, UserOut)
-from app.services import product_service
+from app.models import AuditLog, Category, ChatFeedback, Order, OrderStatus, Product, User
+from app.schemas import (ActiveUpdate, AuditLogOut, CategoryIn, CategoryOut, ChatFeedbackOut,
+                         OrderOut, ProductIn, ProductOut, ProductPage, StatusUpdate, UserOut)
+from app.services import audit_service, product_service
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
@@ -119,3 +119,20 @@ def set_active(uid: int, data: ActiveUpdate, admin: User = Depends(require_admin
     u.is_active = data.is_active
     db.commit()
     return u
+
+
+@router.get("/audit-logs", response_model=list[AuditLogOut])
+def audit_logs(action: str | None = None, limit: int = 50, db: Session = Depends(get_db)):
+    """Append-only event trail, newest first.
+
+    ``require_admin`` is already enforced for the whole router, so no customer
+    can reach this endpoint.
+    """
+    return audit_service.list_recent(db, limit=limit, action=action)
+
+
+@router.get("/chat-feedback", response_model=list[ChatFeedbackOut])
+def chat_feedback(limit: int = 50, db: Session = Depends(get_db)):
+    """Raw experience ratings, newest first."""
+    rows = db.query(ChatFeedback).order_by(ChatFeedback.id.desc()).limit(max(1, min(limit, 200))).all()
+    return rows

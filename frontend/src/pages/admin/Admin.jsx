@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Package, Pencil, Plus, ShoppingBag, Trash2, Users } from 'lucide-react';
+import { Package, Pencil, Plus, ScrollText, ShoppingBag, Trash2, Users } from 'lucide-react';
 import useFetch from '../../hooks/useFetch';
 import { adminApi, errMsg, productApi } from '../../services/api';
 import { useToast } from '../../context/ToastContext';
@@ -188,6 +188,83 @@ export function AdminUsers() {
           {data.map((u) => <tr key={u.id}><td className="font-medium text-slate-900">{u.name}</td><td>{u.email}</td><td>{u.role}</td><td>{dateStr(u.created_at)}</td>
             <td><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${u.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
             <td className="text-right">{u.role !== 'ADMIN' && <button className="btn-outline py-1.5" onClick={() => toggle(u)}>{u.is_active ? 'Deactivate' : 'Activate'}</button>}</td></tr>)}
+        </Table>
+      )}
+    </>
+  );
+}
+
+const RATING_TONE = {
+  1: 'bg-red-100 text-red-800',
+  2: 'bg-amber-100 text-amber-800',
+  3: 'bg-emerald-100 text-emerald-800',
+};
+
+export function AdminAuditLogs() {
+  const { data, loading, error, reload } = useFetch(() => adminApi.auditLogs({ limit: 100 }));
+  const { data: ratings, loading: ratingsLoading, reload: reloadRatings } = useFetch(
+    () => adminApi.chatFeedback({ limit: 100 }),
+  );
+  const refresh = () => { reload(); reloadRatings(); };
+
+  const total = ratings?.length || 0;
+  const average = total
+    ? (ratings.reduce((sum, r) => sum + r.rating, 0) / total).toFixed(2)
+    : null;
+  const cards = [
+    ['Feedback received', total, ScrollText],
+    ['Average rating', average ?? '-', ScrollText],
+    ['Chat conversations rated', new Set(ratings?.map((r) => r.conversation_id)).size, Users],
+  ];
+
+  return (
+    <>
+      <Head title="Audit Log">
+        <button className="btn-outline" onClick={refresh}>Refresh</button>
+      </Head>
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        {cards.map(([l, v, I]) => (
+          <div key={l} className="card flex items-center justify-between p-5">
+            <div>
+              <p className="text-sm text-slate-500">{l}</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{v}</p>
+            </div>
+            <span className="rounded-lg bg-brand-50 p-3 text-brand-600"><I size={20} /></span>
+          </div>
+        ))}
+      </div>
+
+      <h2 className="mb-3 text-lg">Chatbot experience feedback</h2>
+      {ratingsLoading ? <TableSkeleton /> : !ratings?.length ? (
+        <EmptyState title="No feedback yet" />
+      ) : (
+        <Table head={['Rating', 'Experience', 'Conversation', 'User', 'Received']}>
+          {ratings.map((r) => (
+            <tr key={r.id}>
+              <td className="font-semibold text-slate-900">{r.rating}</td>
+              <td><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${RATING_TONE[r.rating]}`}>{['', 'Bad', 'Neutral', 'Excellent'][r.rating]}</span></td>
+              <td className="font-mono text-xs text-slate-500">{r.conversation_id}</td>
+              <td>{r.user_id ? `#${r.user_id}` : 'Anonymous'}</td>
+              <td>{dateStr(r.created_at)}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+
+      <h2 className="mb-3 mt-8 text-lg">Event trail</h2>
+      {loading ? <TableSkeleton /> : error ? <ErrorState message={error} onRetry={reload} /> : !data?.length ? (
+        <EmptyState title="No audit events yet" />
+      ) : (
+        <Table head={['Event', 'Details', 'User', 'When']}>
+          {data.map((e) => (
+            <tr key={e.id}>
+              <td><span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">{e.action}</span></td>
+              <td className="text-slate-600">{e.details}</td>
+              <td>{e.user_id ? `#${e.user_id}` : 'Anonymous'}</td>
+              <td>{dateStr(e.created_at)}</td>
+            </tr>
+          ))}
         </Table>
       )}
     </>

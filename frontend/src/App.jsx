@@ -8,7 +8,7 @@ import { ProductDetails, Products } from './pages/Shop';
 import { Cart, Checkout } from './pages/CartCheckout';
 import { Login, Profile, Register } from './pages/AuthPages';
 import { OrderDetails, Orders } from './pages/OrderPages';
-import { AdminCategories, AdminDashboard, AdminOrders, AdminProducts, AdminUsers, ProductForm } from './pages/admin/Admin';
+import { AdminAuditLogs, AdminCategories, AdminDashboard, AdminOrders, AdminProducts, AdminUsers, ProductForm } from './pages/admin/Admin';
 
 function Guard({ admin }) {
   const { user, loading } = useAuth();
@@ -18,7 +18,10 @@ function Guard({ admin }) {
   if (admin && user.role !== 'ADMIN') return <Navigate to="/" replace />;
   return <Outlet />;
 }
-function ScrollTop() { const { pathname } = useLocation(); useEffect(() => window.scrollTo(0, 0), [pathname]); return null; }
+// `window.scrollTo` returns a Promise in current Chrome. Returning it from the
+// effect made React treat it as a cleanup function and throw "destroy is not a
+// function", blanking the whole app.
+function ScrollTop() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); }, [pathname]); return null; }
 
 export default function App() {
   return (
@@ -49,6 +52,7 @@ export default function App() {
             <Route path="categories" element={<AdminCategories />} />
             <Route path="orders" element={<AdminOrders />} />
             <Route path="users" element={<AdminUsers />} />
+            <Route path="audit-logs" element={<AdminAuditLogs />} />
           </Route>
         </Route>
       </Routes>

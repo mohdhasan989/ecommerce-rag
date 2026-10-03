@@ -1,6 +1,7 @@
 """Chatbot API.
 
     POST /api/chat          -> end-to-end RAG / product / order answer
+    POST /api/chat/feedback -> one 1-3 experience rating per conversation
     GET  /api/chat/health   -> redacted connectivity/configuration report
 
 Mounted under the existing ``/api`` prefix like every other router in the
@@ -25,6 +26,7 @@ from app.ai.rag.retriever import retrieve
 from app.ai.router.intent_router import Intent, get_router
 from app.database import get_db
 from app.dependencies.auth import get_current_user_optional
+from app.services import feedback_service
 
 log = logging.getLogger("app.chat")
 
@@ -69,6 +71,27 @@ class ChatHealthOut(BaseModel):
     rag: str
     chat: str = "unavailable"
     notes: list[str] = Field(default_factory=list)
+
+
+class ChatFeedbackIn(BaseModel):
+    """One experience rating for a finished conversation.
+
+    Deliberately has no ``user_id``: the chatbot is public, and ownership is
+    derived from the caller's JWT so a client can never rate on someone
+    else's behalf.
+    """
+
+    conversation_id: str = Field(
+        ...,
+        min_length=36,
+        max_length=36,
+        description="Id shared by every message of the finished conversation.",
+    )
+    rating: int = Field(..., ge=1, le=3, description="1 = Bad, 2 = Neutral, 3 = Excellent.")
+
+
+class ChatFeedbackOut(BaseModel):
+    success: bool = True
 
 
 # ---------------------------------------------------------------- endpoints
@@ -201,6 +224,27 @@ def chat(
     )
 
 
+@router.post("/feedback", response_model=ChatFeedbackOut)
+def chat_feedback(
+    payload: ChatFeedbackIn,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user_optional),
+) -> ChatFeedbackOut:
+    """Record one 1-3 experience rating for a finished chatbot conversation.
+
+    Public endpoint: anonymous visitors may rate a conversation, while a signed
+    in customer has the rating attributed to their account. An invalid token is
+    ignored rather than rejected so a stale session can never lose feedback.
+    """
+    feedback_service.create_feedback(
+        db,
+        conversation_id=payload.conversation_id,
+        rating=payload.rating,
+        user=user,
+    )
+    return ChatFeedbackOut(success=True)
+
+
 @router.get("/health", response_model=ChatHealthOut)
 def chat_health() -> ChatHealthOut:
     """Development health check. Reports configuration only - never secrets."""
@@ -276,4 +320,4 @@ def chat_health() -> ChatHealthOut:
     )
 
 
-__all__ = ["router", "ChatIn", "ChatOut", "ChatHealthOut"]
+__all__ = ["router", "ChatIn", "ChatOut", "ChatHealthOut", "ChatFeedbackIn", "ChatFeedbackOut"]

@@ -48,6 +48,14 @@ export const orderApi = {
   get: (id) => d(api.get(`/orders/${id}`)),
   create: (shipping) => d(api.post('/orders', { shipping })),
 };
+export const chatApi = {
+  // The shared axios instance supplies the base URL and the Bearer token
+  // interceptor, so authenticated order questions work with no extra auth code.
+  send: (message) => d(api.post('/chat', { message })),
+  // One 1-3 rating per conversation. No user_id is ever sent - the token is
+  // added by the interceptor, and anonymous visitors are accepted as-is.
+  feedback: (conversation_id, rating) => d(api.post('/chat/feedback', { conversation_id, rating })),
+};
 export const adminApi = {
   stats: () => d(api.get('/admin/stats')),
   products: (params) => d(api.get('/admin/products', { params })),
@@ -62,4 +70,6 @@ export const adminApi = {
   setOrderStatus: (id, status) => d(api.put(`/admin/orders/${id}/status`, { status })),
   users: () => d(api.get('/admin/users')),
   setUserActive: (id, is_active) => d(api.patch(`/admin/users/${id}/active`, { is_active })),
+  auditLogs: (params) => d(api.get('/admin/audit-logs', { params })),
+  chatFeedback: (params) => d(api.get('/admin/chat-feedback', { params })),
 };

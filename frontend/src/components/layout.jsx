@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LayoutDashboard, LogOut, Menu, Package, ShoppingBag, ShoppingCart, Store, Tags, User, Users, X } from 'lucide-react';
+import { LayoutDashboard, LogOut, Menu, Package, ScrollText, ShoppingBag, ShoppingCart, Store, Tags, User, Users, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import Chatbot from './chatbot';
 
 const linkCls = ({ isActive }) => `text-sm font-medium transition-colors ${isActive ? 'text-brand-600' : 'text-slate-600 hover:text-slate-900'}`;
 
@@ -85,11 +86,12 @@ export function MainLayout() {
       <Navbar />
       <motion.main key={pathname} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }} className="flex-1"><Outlet /></motion.main>
       <Footer />
+      <Chatbot />
     </div>
   );
 }
 
-const ADMIN_LINKS = [['/admin', 'Dashboard', LayoutDashboard, true], ['/admin/products', 'Products', Package], ['/admin/categories', 'Categories', Tags], ['/admin/orders', 'Orders', ShoppingBag], ['/admin/users', 'Users', Users]];
+const ADMIN_LINKS = [['/admin', 'Dashboard', LayoutDashboard, true], ['/admin/products', 'Products', Package], ['/admin/categories', 'Categories', Tags], ['/admin/orders', 'Orders', ShoppingBag], ['/admin/users', 'Users', Users], ['/admin/audit-logs', 'Audit Log', ScrollText]];
 
 export function AdminLayout() {
   const [open, setOpen] = useState(false);

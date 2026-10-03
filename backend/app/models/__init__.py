@@ -140,3 +140,44 @@ class OrderItem(Base):
     @property
     def image_url(self):
         return self.product.images[0].image_url if self.product and self.product.images else None
+
+
+class ChatFeedback(Base):
+    """One customer-experience rating for one chatbot conversation.
+
+    ``conversation_id`` is a client-generated id shared by every message of a
+    single chatbot session; it is unique so a conversation can only ever be
+    rated once. ``user_id`` is nullable because the chatbot is public, and it is
+    always filled in from the JWT - never from the request body.
+    """
+
+    __tablename__ = "chat_feedback"
+    __table_args__ = (
+        CheckConstraint("rating >= 1 AND rating <= 3", name="ck_chat_feedback_rating"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    conversation_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    rating: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = _ts()
+
+    user = relationship("User")
+
+
+class AuditLog(Base):
+    """Append-only trail of notable customer-facing events.
+
+    Read only through the admin router. Deliberately generic so later
+    milestones reuse it instead of adding another log table.
+    """
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    details: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    created_at: Mapped[datetime] = _ts()
+
+    user = relationship("User")

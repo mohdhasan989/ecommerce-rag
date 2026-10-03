@@ -471,3 +471,46 @@ def test_safe_provider_error_redacts_secrets():
     out = safe_provider_error(exc, "groq")
     assert "gsk_livesecretvalue" not in out
     assert "redacted" in out
+
+# ---------------------------------------------- product search tokenisation
+
+
+def test_search_terms_fold_punctuation_case_and_filler_words():
+    from app.ai.handlers import _search_terms
+
+    assert _search_terms("Wireless Noise-Cancelling Headphones") == ["wireless", "noise", "cancelling", "headphones"]
+    assert _search_terms("Wireless Noise Cancelling Headphones") == ["wireless", "noise", "cancelling", "headphones"]
+    assert _search_terms("wireless-noise-cancelling-headphones") == ["wireless", "noise", "cancelling", "headphones"]
+    assert _search_terms("Wireless_Noise/Cancelling (Headphones)") == ["wireless", "noise", "cancelling", "headphones"]
+    # Filler words must not become required keywords.
+    assert _search_terms("wireless headphone you have") == ["wireless", "headphone"]
+    # A price left in the search text must not become a "$100" keyword.
+    assert _search_terms("wireless headphones under $100") == ["wireless", "headphones"]
+    assert _search_terms("Show me products under $100") == []
+
+
+def test_search_terms_drop_noise_and_one_letter_tokens():
+    from app.ai.handlers import _search_terms
+
+    assert _search_terms("") == []
+    assert _search_terms(None) == []
+    assert _search_terms("   ") == []
+    assert _search_terms("do you have any?") == []
+    assert _search_terms("cotton t shirt") == ["cotton", "shirt"]
+    assert _search_terms("!!! --- ???") == []
+
+
+@pytest.mark.parametrize("term,expected", [
+    ("headphones", "headphone"),
+    ("headphone", "headphone"),
+    ("shoes", "shoe"),
+    ("box", "box"),
+    ("dress", "dress"),
+    ("glasses", "glass"),
+    ("accessories", "accessory"),
+    ("jeans", "jean"),
+])
+def test_singular_de_pluralisation(term, expected):
+    from app.ai.handlers import _singular
+
+    assert _singular(term) == expected

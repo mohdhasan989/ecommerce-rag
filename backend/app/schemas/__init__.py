@@ -170,3 +170,19 @@ class StatusUpdate(BaseModel):
 
 class ActiveUpdate(BaseModel):
     is_active: bool
+
+
+class AuditLogOut(ORM):
+    id: int
+    action: str
+    details: str
+    user_id: int | None = None
+    created_at: datetime
+
+
+class ChatFeedbackOut(ORM):
+    id: int
+    conversation_id: str
+    rating: int
+    user_id: int | None = None
+    created_at: datetime

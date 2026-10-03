@@ -282,6 +282,184 @@ def test_exact_name_search_end_to_end(ai, extractor, client):
     assert route["filters"]["search"] == "Mechanical Keyboard"
 
 
+# ---------------------------------- product text matching (hyphens, plurals)
+# Incident: "Show me Wireless Noise-Cancelling Headphones" returned found=false,
+# count=0. The catalogue stores "Wireless Noise-Cancelling Headphones" but the
+# extractor emitted "Wireless Noise Cancelling Headphones" (hyphen dropped), so
+# LIKE '%Wireless Noise Cancelling Headphones%' could never match. Text matching
+# is now punctuation-insensitive and token based, still entirely in SQL.
+HEADPHONES = "Wireless Noise-Cancelling Headphones"
+
+
+def _names(body):
+    return [record["name"] for record in body["debug"]["records"]]
+
+
+def test_exact_name_search_returns_only_that_product(ai, extractor, client):
+    """A. The already-working exact search must keep working and stay narrow."""
+    router = StubRouter("product")
+    with patch("app.ai.handlers.get_groq_service", side_effect=RuntimeError("no key")):
+        response, _ = chat(client, "Show me Mechanical Keyboard", router, ai)
+    body = response.json()
+    assert body["debug"]["route_result"]["found"] is True
+    assert _names(body) == ["Mechanical Keyboard"]
+
+
+@pytest.mark.parametrize("search", [
+    HEADPHONES,                               # exactly as stored
+    "Wireless Noise Cancelling Headphones",   # B/C: hyphen dropped by the extractor
+    "wireless-noise-cancelling-headphones",   # hyphens only
+    "WIRELESS NOISE CANCELLING HEADPHONES",   # case
+    "wireless headphone",                     # singular
+    "wireless headphones",                    # plural
+    "noise cancelling headphones",            # partial, leading word dropped
+    "wireless headphone you have",            # question wording
+])
+def test_product_search_ignores_punctuation_and_number(ai, extractor, client, search):
+    """B/C/D. Punctuation, case, number and filler words must not block a match."""
+    router = StubRouter("product")
+    extractor.return_value.invoke_json.return_value["search"] = search
+    response, _ = chat(client, f"Show me {search}", router, ai)
+    body = response.json()
+    assert HEADPHONES in _names(body), (search, body["debug"]["route_result"])
+    assert body["debug"]["route_result"]["found"] is True
+
+
+def test_question_wording_does_not_become_a_required_token(ai, extractor, client):
+    """D. 'Do you have wireless headphones?' even when the extractor is down.
+
+    Without the extractor the whole raw message becomes the search text, so the
+    question words must not be treated as required keywords.
+    """
+    router = StubRouter("product")
+    with patch("app.ai.handlers.get_groq_service", side_effect=RuntimeError("no key")):
+        response, _ = chat(client, "Do you have wireless headphones?", router, ai)
+    body = response.json()
+    assert HEADPHONES in _names(body), body["debug"]["route_result"]
+
+
+def test_partial_multi_word_search_finds_the_product(ai, extractor, client):
+    """4. 'cotton t shirt' must reach "Classic Cotton T-Shirt"."""
+    router = StubRouter("product")
+    with patch("app.ai.handlers.get_groq_service", side_effect=RuntimeError("no key")):
+        response, _ = chat(client, "Show me cotton t shirt", router, ai)
+    assert _names(response.json()) == ["Classic Cotton T-Shirt"]
+
+
+def test_keyword_search_stays_narrow(ai, extractor, client):
+    """7. 'keyboard' must not return every Electronics product."""
+    router = StubRouter("product")
+    with patch("app.ai.handlers.get_groq_service", side_effect=RuntimeError("no key")):
+        response, _ = chat(client, "keyboard", router, ai)
+    names = _names(response.json())
+    assert names == ["Mechanical Keyboard"], names
+
+
+def test_search_and_price_ceiling_are_applied_together(ai, extractor, client):
+    """E. search and max_price combine rather than replace one another."""
+    router = StubRouter("product")
+
+    with patch("app.ai.handlers.get_groq_service", side_effect=RuntimeError("no key")):
+        response, _ = chat(client, "Show me wireless headphones under $100", router, ai)
+    route = response.json()["debug"]["route_result"]
+    assert route["filters"]["search"] == "wireless headphones"
+    assert route["filters"]["max_price"] == 100
+    # The only match costs $159.99, so the ceiling must exclude it.
+    assert route["found"] is False and route["count"] == 0
+
+    # ...and a matching product that is under the ceiling is still returned.
+    with patch("app.ai.handlers.get_groq_service", side_effect=RuntimeError("no key")):
+        response, _ = chat(client, "Show me cotton t shirt under $100", router, ai)
+    body = response.json()
+    assert body["debug"]["route_result"]["found"] is True
+    assert _names(body) == ["Classic Cotton T-Shirt"]
+    assert all(record["effective_price"] <= 100 for record in body["debug"]["records"])
+
+
+def test_nonexistent_product_still_returns_found_false(ai, extractor, client):
+    """F. Robust matching must not turn every query into a match."""
+    router = StubRouter("product")
+    extractor.return_value.invoke_json.return_value["search"] = "Quantum Flux Hoverboard"
+    response, _ = chat(client, "Show me a quantum flux hoverboard", router, ai)
+    body = response.json()
+    assert body["debug"]["route_result"]["found"] is False
+    assert body["debug"]["route_result"]["count"] == 0
+    assert body["debug"]["records"] == []
+
+
+def test_search_without_a_meaningful_word_matches_nothing(client):
+    """Punctuation/single letters must not fall back to the whole catalogue.
+
+    ``_clean_search`` already reduces a pure question ("do you have any?") to an
+    empty search, which correctly means *no* text filter. This covers the layer
+    below it: whatever reaches the query must not match everything either.
+    """
+    from app.ai.handlers import ProductQuery, search_products
+    from tests.conftest import TestSession
+
+    db = TestSession()
+    try:
+        assert search_products(db, ProductQuery(search="t")) == []
+        assert search_products(db, ProductQuery(search="!!!")) == []
+        assert search_products(db, ProductQuery(search="   ")) == []
+        # ...while a real search on the same session still works.
+        assert [r["name"] for r in search_products(db, ProductQuery(search="mechanical keyboard"))] \
+            == ["Mechanical Keyboard"]
+    finally:
+        db.close()
+
+
+def test_is_active_filter_still_applies_to_the_new_matcher(client):
+    """8. Deactivating a row must hide it from the token matcher too."""
+    from app.ai.handlers import ProductQuery, search_products
+    from app.models import Product
+    from tests.conftest import TestSession
+
+    db = TestSession()
+    try:
+        keyboard = db.query(Product).filter(Product.name == "Mechanical Keyboard").one()
+        keyboard.is_active = False
+        db.commit()
+        assert search_products(db, ProductQuery(search="keyboard")) == []
+        # Other products are unaffected.
+        assert [r["name"] for r in search_products(db, ProductQuery(search="wireless headphones"))] \
+            == ["Wireless Noise-Cancelling Headphones"]
+    finally:
+        db.close()
+
+
+def test_unknown_category_does_not_black_hole_the_search(client):
+    """A category the catalogue does not have must be ignored, not enforced.
+
+    The extractor sometimes reports a product *type* ("Headphones") as a
+    category. Filtering on it returned zero rows even though the product was
+    sitting in the catalogue under a different name.
+    """
+    from app.ai.handlers import ProductQuery, search_products
+    from tests.conftest import TestSession
+
+    db = TestSession()
+    try:
+        rows = search_products(db, ProductQuery(search="wireless headphones", category="Headphones"))
+        assert [r["name"] for r in rows] == ["Wireless Noise-Cancelling Headphones"]
+        # A category that really exists still filters, case-insensitively.
+        assert all(r["category"] == "Shoes" for r in search_products(db, ProductQuery(category="shoes")))
+    finally:
+        db.close()
+
+
+def test_hallucinated_category_is_ignored_end_to_end(ai, extractor, client):
+    router = StubRouter("product")
+    extractor.return_value.invoke_json.return_value.update(
+        {"search": "wireless headphones", "category": "Headphones"}
+    )
+    response, _ = chat(client, "Show me wireless headphones", router, ai)
+    body = response.json()
+    assert _names(body) == ["Wireless Noise-Cancelling Headphones"]
+    # The reported filter is still echoed so the response stays explainable.
+    assert body["debug"]["route_result"]["filters"]["category"] == "Headphones"
+
+
 def test_reported_filters_appear_even_when_nothing_matches(ai, extractor, client):
     """An empty result must still explain which filters produced it."""
     router = StubRouter("product")

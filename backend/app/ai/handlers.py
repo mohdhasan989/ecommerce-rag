@@ -14,11 +14,11 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.ai.llm.groq_client import get_groq_service
-from app.models import Order, OrderStatus, Product
+from app.models import Category, Order, OrderStatus, Product
 
 log = logging.getLogger("app.ai.handlers")
 
@@ -96,6 +96,92 @@ SEARCH_FILLER_WORDS = frozenset(
 )
 
 
+# ------------------------------------------------------- product text search
+# Incident: "Show me Wireless Noise-Cancelling Headphones" returned
+# found=false. The catalogue stores "Wireless Noise-Cancelling Headphones" but
+# the extractor emitted it without the hyphen, so LIKE '%Wireless Noise
+# Cancelling Headphones%' could never match. Both sides are now normalised to
+# the same shape (lower-cased, punctuation folded to spaces) and compared token
+# by token inside MySQL - the catalogue is still never loaded into Python.
+#
+# Only punctuation is folded. Spaces stay separators instead of being folded
+# away, so "noise cancelling" must not match a hypothetical "NoiseCancelling".
+# Currency symbols are folded too, otherwise a price the extractor left in the
+# search text ("headphones under $100") would become a "$100" keyword that no
+# product can ever contain.
+_SEARCH_PUNCTUATION = "-_/&+.,()[]{}\"'!?*#:;|\\$\u20ac\u00a3\u00a5\u20b9%"
+_SEARCH_MIN_TOKEN = 2
+
+# _clean_search only trims fillers from the *edges* of a phrase, so a word in the
+# middle ("wireless you headphones") would still be demanded as a keyword. Reuse
+# that vocabulary here, plus the auxiliaries it does not list.
+_SEARCH_STOPWORDS = SEARCH_FILLER_WORDS | frozenset(
+    {
+        "am", "as", "be", "been", "browse", "budget", "by", "can", "cheap",
+        "cost", "costs", "could", "did", "does", "how", "isn't", "its", "my",
+        "our", "over", "own", "price", "was", "were", "what", "which", "will",
+        "within", "would", "you'd", "your",
+    }
+)
+
+
+def _search_terms(search: str | None) -> list[str]:
+    """Normalised, meaningful keywords; duplicates and order are irrelevant."""
+    if not search:
+        return []
+    cleaned = search.lower()
+    for char in _SEARCH_PUNCTUATION:
+        cleaned = cleaned.replace(char, " ")
+    return [
+        token for token in cleaned.split()
+        if len(token) >= _SEARCH_MIN_TOKEN
+        and token not in _SEARCH_STOPWORDS
+        and any(char.isalpha() for char in token)
+    ]
+
+
+def _singular(term: str) -> str:
+    """Cheap de-pluralisation so 'headphones' also matches a 'headphone' row."""
+    if term.endswith("ies") and len(term) > 4:
+        return term[:-3] + "y"
+    if term.endswith(("ses", "xes", "zes", "ches", "shes")):
+        return term[:-2]
+    if term.endswith("s") and len(term) > 3 and not term.endswith("ss"):
+        return term[:-1]
+    return term
+
+
+def _normalized(column):
+    """SQL twin of the normalisation applied by :func:`_search_terms`."""
+    expression = func.lower(column)
+    for char in _SEARCH_PUNCTUATION:
+        expression = func.replace(expression, char, " ")
+    return expression
+
+
+def _text_match(terms: list[str]):
+    """Require *every* term to appear in name, brand or description.
+
+    AND across terms keeps the search narrow - "keyboard" must not return every
+    Electronics product - while OR across the three fields keeps it matching a
+    brand or a description as before.
+    """
+    columns = (
+        _normalized(Product.name),
+        _normalized(Product.brand),
+        _normalized(Product.description),
+    )
+    clauses = []
+    for term in terms:
+        # Substring matching already covers singular -> plural ("headphone" is
+        # inside "headphones"); the singular form covers the reverse.
+        variants = {term, _singular(term)}
+        clauses.append(or_(*(
+            column.like(f"%{variant}%") for column in columns for variant in variants
+        )))
+    return and_(*clauses)
+
+
 @dataclass
 class RouteContext:
     """Normalised result of whichever route the router selected."""
@@ -148,16 +234,31 @@ def search_products(db: Session, query: ProductQuery, limit: int = 5) -> list[di
     statement = db.query(Product).filter(Product.is_active.is_(True))
 
     if query.search:
-        like = f"%{query.search}%"
-        statement = statement.filter(
-            or_(Product.name.like(like), Product.brand.like(like), Product.description.like(like))
-        )
+        terms = _search_terms(query.search)
+        if not terms:
+            # The "search" held no searchable word (punctuation or question
+            # words only). Matching everything would be worse than nothing.
+            return []
+        statement = statement.filter(_text_match(terms))
     if query.max_price is not None:
         statement = statement.filter(
             func.coalesce(Product.discount_price, Product.price) <= query.max_price
         )
     if query.category:
-        statement = statement.filter(Product.category.has(name=query.category))
+        # The extractor sometimes reports a product *type* as a category
+        # ("Headphones" for Wireless Noise-Cancelling Headphones). Matching a
+        # name that no category has silently returned zero rows, so an unknown
+        # category is now ignored instead of black-holing the search.
+        wanted = query.category.strip().lower()
+        category = (
+            db.query(Category)
+            .filter(func.lower(Category.name) == wanted)
+            .first()
+        )
+        if category is not None:
+            statement = statement.filter(Product.category_id == category.id)
+        else:
+            log.info("Ignoring unknown product category %r", query.category)
 
     products = statement.order_by(Product.id).limit(max(1, limit)).all()
     return [_product_row(product) for product in products]
