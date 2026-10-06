@@ -1,6 +1,6 @@
 # Shoply — (React + FastAPI + MySQL + modular RAG chatbot)
 
-No Docker, no local Qdrant. Run directly on your machine. Needs Python 3.11+, Node 18+, MySQL 8.
+ Run directly on your machine. Needs Python 3.11+, Node 18+, MySQL 8.
 
 ## 1. Backend
 ```bash
