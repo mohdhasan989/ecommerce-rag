@@ -55,7 +55,7 @@ work until they are configured.
 | Capability | Provider | Variable |
 | --- | --- | --- |
 | Intent routing + answer writing | Groq `llama-3.1-8b-instant` | `GROQ_API_KEY` |
-| Embeddings (documents + queries) | Hugging Face `BAAI/bge-small-en-v1.5` | `HF_API_KEY` |
+| Embeddings (documents + queries) | Hugging Face `BAAI/bge-small-en-v1.5` | `HF_API_KEY` | #need change
 | Vector storage + similarity search | Qdrant Cloud | `QDRANT_URL`, `QDRANT_API_KEY` |
 
 Copy the Milestone 2 block from `backend/.env.example` into `backend/.env` and
