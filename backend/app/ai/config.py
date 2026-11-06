@@ -22,8 +22,8 @@ __all__ = ["AIConfig", "ai_config", "get_ai_config", "reset_ai_config_cache"]
 REQUIRED_FOR = {
     "groq": ("GROQ_API_KEY",),
     "qdrant": ("QDRANT_URL", "QDRANT_API_KEY"),
-    "embeddings": ("HF_API_KEY",),
-    "rag": ("GROQ_API_KEY", "HF_API_KEY", "QDRANT_URL", "QDRANT_API_KEY"),
+    "embeddings": (),
+    "rag": ("GROQ_API_KEY", "QDRANT_URL", "QDRANT_API_KEY"),
 }
 
 
